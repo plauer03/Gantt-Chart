@@ -1,0 +1,1063 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GANTT.scientific</title>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        slate: {
+                            50: '#f8fafc',
+                            100: '#f1f5f9',
+                            200: '#e2e8f0',
+                            300: '#cbd5e1',
+                            400: '#94a3b8',
+                            500: '#64748b',
+                            600: '#475569',
+                            700: '#334155',
+                            800: '#1e293b',
+                            900: '#0f172a',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #ffffff;
+            color: #0f172a;
+            overflow: hidden; /* App-Feel */
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* --- Main Layout --- */
+        .gantt-layout {
+            display: grid;
+            grid-template-rows: auto 1fr;
+            height: 100vh;
+        }
+
+        .chart-container {
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            overflow: hidden;
+            border-top: 1px solid #e2e8f0;
+        }
+
+        /* --- Scroll Areas --- */
+        .sidebar-area {
+            overflow: hidden;
+            border-right: 1px solid #e2e8f0;
+            background: #fff;
+        }
+        .timeline-area {
+            overflow: auto;
+            position: relative;
+            background: #fff;
+        }
+
+        /* --- Elements --- */
+        .task-bar {
+            position: absolute;
+            height: 24px; /* Fixierte Höhe Preview */
+            top: 8px;     /* Fixierte Position Preview */
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            cursor: grab;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+            transition: opacity 0.2s, box-shadow 0.2s;
+            user-select: none;
+            border-width: 1px;
+            border-style: solid;
+        }
+        .task-bar:hover {
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            z-index: 10;
+        }
+        .task-bar:active { cursor: grabbing; }
+
+        .group-bar {
+            position: absolute;
+            height: 20px; /* Fixierte Höhe Preview */
+            top: 10px;    /* Fixierte Position Preview */
+            border-radius: 3px;
+            opacity: 1; 
+            pointer-events: none;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .resize-handle {
+            width: 10px;
+            height: 100%;
+            cursor: e-resize;
+            background: transparent;
+            flex-shrink: 0;
+        }
+        .resize-handle:hover { background: rgba(0,0,0,0.1); }
+
+        [contenteditable]:focus {
+            outline: 2px solid #cbd5e1;
+            outline-offset: 2px;
+            border-radius: 2px;
+            background: #f8fafc;
+        }
+
+        .header-cell {
+            background: #f8fafc;
+            border-bottom: 1px solid #e2e8f0;
+            border-right: 1px solid #e2e8f0;
+            font-size: 11px;
+            font-weight: 600;
+            color: #475569;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-sizing: border-box;
+        }
+
+        .modal-backdrop {
+            background-color: rgba(15, 23, 42, 0.4);
+            backdrop-filter: blur(2px);
+        }
+
+        .custom-scrollbar::-webkit-scrollbar { width: 10px; height: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 5px; border: 2px solid #f1f5f9; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        .grid-line {
+            position: absolute;
+            top: 0; bottom: 0;
+            border-right: 1px solid #f1f5f9;
+            pointer-events: none;
+        }
+        
+        /* Interactive Palette Dot */
+        .color-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            cursor: pointer;
+            transition: transform 0.1s;
+            border: 2px solid white;
+            box-shadow: 0 0 0 1px #e2e8f0;
+        }
+        .color-dot:hover { transform: scale(1.2); }
+    </style>
+</head>
+<body>
+
+    <div class="gantt-layout" id="main-app">
+        <header class="h-16 px-6 flex items-center justify-between bg-white z-20 shrink-0 border-b border-slate-200" id="app-header">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 bg-slate-900 text-white rounded flex items-center justify-center">
+                    <i class="ph-bold ph-kanban text-lg"></i>
+                </div>
+                <div>
+                    <h1 class="font-bold text-lg leading-tight tracking-tight">GANTT.scientific</h1>
+                    <p class="text-[10px] text-slate-500 font-mono uppercase tracking-widest">Research Edition</p>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-2" id="toolbar-actions" style="display:none;">
+                <div class="flex bg-slate-100 p-1 rounded-md mr-4">
+                    <button onclick="zoomOut()" class="p-1.5 hover:bg-white hover:shadow-sm rounded transition text-slate-600"><i class="ph-bold ph-minus"></i></button>
+                    <button onclick="zoomIn()" class="p-1.5 hover:bg-white hover:shadow-sm rounded transition text-slate-600"><i class="ph-bold ph-plus"></i></button>
+                </div>
+                
+                <button onclick="handleExportJSON()" class="text-sm font-medium text-slate-600 hover:text-slate-900 px-3 py-2">
+                    JSON Export
+                </button>
+                <label class="text-sm font-medium text-slate-600 hover:text-slate-900 px-3 py-2 cursor-pointer">
+                    JSON Import
+                    <input type="file" class="hidden" accept=".json" onchange="handleImportJSON(this)">
+                </label>
+                <div class="w-px h-4 bg-slate-200 mx-2"></div>
+                <button onclick="handleExportPNG()" class="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded shadow-sm transition">
+                    <i class="ph-bold ph-image"></i> Save PNG
+                </button>
+                <button onclick="openModal()" class="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded shadow-sm transition ml-2">
+                    <i class="ph-bold ph-plus"></i> New
+                </button>
+            </div>
+        </header>
+
+        <div id="landing-view" class="absolute inset-0 top-16 bg-white flex flex-col items-center justify-center z-10">
+            <div class="text-center max-w-lg space-y-8 p-10">
+                <h2 class="text-5xl font-bold text-slate-900 tracking-tight">Struktur für<br>deine Forschung.</h2>
+                <p class="text-slate-500 text-lg">Ein minimalistisches Tool zur Erstellung wissenschaftlicher Zeitpläne. Wochenbasiert, präzise und exportierbar.</p>
+                <div class="flex flex-col items-center gap-4">
+                    <button onclick="openModal()" class="px-8 py-3 bg-slate-900 text-white font-medium rounded-lg hover:translate-y-[-1px] transition shadow-lg w-full max-w-xs">Neues Projekt starten</button>
+                    
+                    <label class="px-8 py-3 bg-white border border-slate-200 text-slate-900 font-medium rounded-lg hover:border-slate-400 transition cursor-pointer w-full max-w-xs flex justify-center items-center gap-2">
+                        <i class="ph ph-upload-simple"></i>
+                        Importieren (.json)
+                        <input type="file" class="hidden" accept=".json" onchange="handleImportJSON(this)">
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <div id="gantt-view" class="chart-container hidden h-full bg-white">
+            
+            <div class="flex flex-col border-r border-slate-200 bg-white z-20" id="sidebar-col">
+                <div class="h-[60px] border-b border-slate-200 bg-slate-50 flex items-center justify-center px-4 shrink-0 text-center">
+                    <span id="sidebar-header-text" class="text-sm font-bold uppercase tracking-wider text-slate-700"></span>
+                </div>
+                <div id="sidebar-container" class="flex-1 overflow-hidden relative bg-white">
+                    <div id="sidebar-content" class="absolute top-0 left-0 w-full pb-20">
+                        </div>
+                </div>
+                <div id="sidebar-footer" class="h-12 border-t border-slate-100 flex items-center justify-center shrink-0 bg-white z-30">
+                    <button onclick="addGroup()" class="text-xs font-semibold text-slate-400 hover:text-slate-800 transition flex items-center gap-1">
+                        <i class="ph-bold ph-plus-circle"></i> Gruppe hinzufügen
+                    </button>
+                </div>
+            </div>
+
+            <div class="flex flex-col overflow-hidden relative bg-white min-w-0" id="timeline-col">
+                <div id="timeline-scroll-area" class="flex-1 overflow-auto relative custom-scrollbar">
+                    
+                    <div id="timeline-content" class="relative">
+                        <div id="timeline-header" class="sticky top-0 z-30 bg-slate-50 h-[60px] border-b border-slate-200 flex whitespace-nowrap shadow-sm">
+                            </div>
+
+                        <div id="timeline-grid" class="relative pb-20">
+                            </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="new-modal" class="hidden fixed inset-0 z-50 modal-backdrop flex items-center justify-center">
+        <div class="bg-white rounded-xl shadow-2xl border border-slate-100 p-8 w-[450px] transform transition-all">
+            <h3 class="text-xl font-bold text-slate-900 mb-1">Neues Projekt</h3>
+            <p class="text-slate-400 text-sm mb-6">Definiere den Zeitraum deiner Arbeit.</p>
+            
+            <div class="space-y-5">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Projekttitel</label>
+                    <input type="text" id="inp-title" class="w-full bg-slate-50 border border-slate-200 rounded p-2.5 text-sm font-medium focus:border-slate-900 focus:ring-0 transition" value="Bachelorarbeit 2024">
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Startdatum</label>
+                        <input type="date" id="inp-start" class="w-full bg-slate-50 border border-slate-200 rounded p-2.5 text-sm font-sans focus:border-slate-900 outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Enddatum</label>
+                        <input type="date" id="inp-end" class="w-full bg-slate-50 border border-slate-200 rounded p-2.5 text-sm font-sans focus:border-slate-900 outline-none">
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-8 flex justify-end gap-3 border-t border-slate-100 pt-5">
+                <button onclick="closeModal()" class="px-4 py-2 text-sm font-medium text-slate-500 hover:text-slate-900 transition">Abbrechen</button>
+                <button onclick="createProject()" class="px-6 py-2 bg-slate-900 text-white text-sm font-bold rounded hover:bg-slate-800 transition shadow-md">Erstellen</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="export-overlay" class="hidden fixed inset-0 z-[60] bg-white/80 flex items-center justify-center backdrop-blur-sm">
+        <div class="flex flex-col items-center">
+            <div class="animate-spin rounded-full h-10 w-10 border-b-2 border-slate-900 mb-3"></div>
+            <div class="text-sm font-medium text-slate-700">Generiere Bild (High Res)...</div>
+        </div>
+    </div>
+
+    <script>
+        // --- Configuration & State ---
+        let project = {
+            title: "",
+            startDate: null,
+            endDate: null,
+            groups: []
+        };
+
+        const config = {
+            rowHeight: 40,
+            weekWidth: 100,
+            headerHeight: 60,
+        };
+
+        // DOM References
+        const els = {
+            landing: document.getElementById('landing-view'),
+            gantt: document.getElementById('gantt-view'),
+            modal: document.getElementById('new-modal'),
+            toolbar: document.getElementById('toolbar-actions'),
+            sidebarContent: document.getElementById('sidebar-content'),
+            sidebarContainer: document.getElementById('sidebar-container'),
+            timelineScroll: document.getElementById('timeline-scroll-area'),
+            timelineContent: document.getElementById('timeline-content'),
+            timelineHeader: document.getElementById('timeline-header'),
+            timelineGrid: document.getElementById('timeline-grid'),
+            exportOverlay: document.getElementById('export-overlay'),
+            
+            inpTitle: document.getElementById('inp-title'),
+            inpStart: document.getElementById('inp-start'),
+            inpEnd: document.getElementById('inp-end'),
+        };
+
+        // --- Helpers ---
+        const ONE_DAY = 1000 * 60 * 60 * 24;
+        
+        function getWeekNumber(d) {
+            d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+            d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+            var yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+            var weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+            return weekNo;
+        }
+
+        function formatDateDE(dateStr) {
+            const d = new Date(dateStr);
+            return `${d.getDate().toString().padStart(2, '0')}.${(d.getMonth()+1).toString().padStart(2, '0')}`;
+        }
+
+        function addDays(dateStr, days) {
+            const d = new Date(dateStr);
+            d.setDate(d.getDate() + days);
+            return d.toISOString().split('T')[0];
+        }
+
+        function getDiffDays(start, end) {
+            return (new Date(end) - new Date(start)) / ONE_DAY;
+        }
+
+        // --- Styles / Palettes (Preview) ---
+        // Tailwind Colors mapped here
+        const PALETTES = {
+            red:    { dot: "bg-red-500", dark: "bg-red-500 border-red-600", light: "bg-red-200 border-red-300 text-red-900" },
+            blue:   { dot: "bg-blue-500", dark: "bg-blue-500 border-blue-600", light: "bg-blue-200 border-blue-300 text-blue-900" },
+            green:  { dot: "bg-emerald-500", dark: "bg-emerald-500 border-emerald-600", light: "bg-emerald-200 border-emerald-300 text-emerald-900" },
+            purple: { dot: "bg-purple-500", dark: "bg-purple-500 border-purple-600", light: "bg-purple-200 border-purple-300 text-purple-900" },
+            orange: { dot: "bg-orange-500", dark: "bg-orange-500 border-orange-600", light: "bg-orange-200 border-orange-300 text-orange-900" },
+        };
+        const PALETTE_KEYS = Object.keys(PALETTES);
+
+        // --- Export Colors (Matched to Tailwind Hex) ---
+        // These EXACTLY match the PALETTES classes above
+        const EXPORT_COLORS = {
+            red:    { dark: '#ef4444', lightBg: '#fecaca', lightBorder: '#fca5a5' }, // red-500, red-200, red-300
+            blue:   { dark: '#3b82f6', lightBg: '#bfdbfe', lightBorder: '#93c5fd' }, // blue-500, blue-200, blue-300
+            green:  { dark: '#10b981', lightBg: '#a7f3d0', lightBorder: '#6ee7b7' }, // emerald-500, emerald-200, emerald-300
+            purple: { dark: '#a855f7', lightBg: '#e9d5ff', lightBorder: '#d8b4fe' }, // purple-500, purple-200, purple-300
+            orange: { dark: '#f97316', lightBg: '#fed7aa', lightBorder: '#fdba74' }  // orange-500, orange-200, orange-300
+        };
+
+        // --- Core Logic ---
+
+        function init() {
+            const today = new Date();
+            const threeMonths = new Date();
+            threeMonths.setMonth(today.getMonth() + 3);
+            els.inpStart.valueAsDate = today;
+            els.inpEnd.valueAsDate = threeMonths;
+
+            els.timelineScroll.addEventListener('scroll', (e) => {
+                els.sidebarContainer.scrollTop = e.target.scrollTop;
+            });
+        }
+
+        function openModal() { els.modal.classList.remove('hidden'); }
+        function closeModal() { els.modal.classList.add('hidden'); }
+
+        function createProject() {
+            if(!els.inpStart.value || !els.inpEnd.value) return;
+
+            project = {
+                title: els.inpTitle.value,
+                startDate: els.inpStart.value,
+                endDate: els.inpEnd.value,
+                groups: [
+                    {
+                        id: crypto.randomUUID(),
+                        name: "1. Vorbereitungsphase",
+                        color: "red",
+                        tasks: [
+                            { id: crypto.randomUUID(), name: "Themenfindung & Recherche", start: els.inpStart.value, duration: 14 } 
+                        ]
+                    },
+                    {
+                        id: crypto.randomUUID(),
+                        name: "2. Analyse & Entwurf",
+                        color: "red",
+                        tasks: [
+                            { id: crypto.randomUUID(), name: "Literaturanalyse", start: addDays(els.inpStart.value, 14), duration: 21 }
+                        ]
+                    },
+                    {
+                        id: crypto.randomUUID(),
+                        name: "3. Umsetzung",
+                        color: "red",
+                        tasks: []
+                    }
+                ]
+            };
+
+            closeModal();
+            els.landing.classList.add('hidden');
+            els.gantt.classList.remove('hidden');
+            els.toolbar.style.display = 'flex';
+            
+            render();
+        }
+
+        // --- Rendering (Interactive Mode) ---
+
+        function render() {
+            if(!project.startDate) return;
+
+            // 0. Update Header Title in Sidebar
+            const sbHeader = document.getElementById('sidebar-header-text');
+            if(sbHeader) {
+                sbHeader.innerText = project.title || "Projekt";
+            }
+
+            // Dimensions
+            const start = new Date(project.startDate);
+            const dayOfWeek = start.getDay(); 
+            const distToMon = (dayOfWeek + 6) % 7;
+            start.setDate(start.getDate() - distToMon);
+
+            const end = new Date(project.endDate);
+            const totalDurationDays = getDiffDays(start, end);
+            const totalWeeks = Math.ceil(totalDurationDays / 7) + 2;
+
+            const totalWidth = totalWeeks * config.weekWidth;
+            
+            els.timelineContent.style.width = `${totalWidth}px`;
+            els.timelineHeader.innerHTML = '';
+            els.timelineGrid.innerHTML = '';
+            els.sidebarContent.innerHTML = '';
+
+            // 2. Render Header
+            const headerMonthRow = document.createElement('div');
+            headerMonthRow.className = "flex h-[30px] border-b border-slate-200 bg-slate-50";
+            
+            const headerWeekRow = document.createElement('div');
+            headerWeekRow.className = "flex h-[30px] bg-white";
+
+            let currentMonth = -1;
+            let currentMonthWidth = 0;
+            let monthLabelStart = null;
+
+            for(let i=0; i<totalWeeks; i++) {
+                const weekStart = new Date(start);
+                weekStart.setDate(weekStart.getDate() + (i * 7));
+                const weekEnd = new Date(weekStart);
+                weekEnd.setDate(weekEnd.getDate() + 6);
+
+                if(weekStart.getMonth() !== currentMonth) {
+                    if(monthLabelStart) {
+                         const mDiv = document.createElement('div');
+                         mDiv.className = "header-cell uppercase text-[10px] tracking-widest text-slate-500 font-bold bg-slate-100 justify-start px-2 border-r border-slate-200";
+                         mDiv.style.width = `${currentMonthWidth}px`;
+                         mDiv.innerText = monthLabelStart;
+                         headerMonthRow.appendChild(mDiv);
+                    }
+                    currentMonth = weekStart.getMonth();
+                    monthLabelStart = weekStart.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' });
+                    currentMonthWidth = 0;
+                }
+                currentMonthWidth += config.weekWidth;
+
+                const wDiv = document.createElement('div');
+                wDiv.className = "header-cell flex-col justify-center text-[10px] text-slate-600 font-normal bg-white";
+                wDiv.style.width = `${config.weekWidth}px`;
+                wDiv.innerHTML = `
+                    <span class="font-bold text-slate-800">KW ${getWeekNumber(weekStart)}</span>
+                    <span class="text-[9px] text-slate-400 mt-0.5">${formatDateDE(weekStart)} - ${formatDateDE(weekEnd)}</span>
+                `;
+                headerWeekRow.appendChild(wDiv);
+
+                // Add grid line to timeline
+                const gridLine = document.createElement('div');
+                gridLine.className = "grid-line";
+                gridLine.style.left = `${(i+1) * config.weekWidth}px`;
+                els.timelineGrid.appendChild(gridLine);
+            }
+            if(monthLabelStart) {
+                const mDiv = document.createElement('div');
+                 mDiv.className = "header-cell uppercase text-[10px] tracking-widest text-slate-500 font-bold bg-slate-100 justify-start px-2 border-r border-slate-200";
+                 mDiv.style.width = `${currentMonthWidth}px`;
+                 mDiv.innerText = monthLabelStart;
+                 headerMonthRow.appendChild(mDiv);
+            }
+
+            const headerContainer = document.createElement('div');
+            headerContainer.className = "flex flex-col w-full";
+            headerContainer.appendChild(headerMonthRow);
+            headerContainer.appendChild(headerWeekRow);
+            els.timelineHeader.appendChild(headerContainer);
+
+            // 3. Render Groups & Tasks
+            project.groups.forEach(group => {
+                const colors = PALETTES[group.color] || PALETTES['red'];
+
+                // Sidebar Group
+                const sbGroup = document.createElement('div');
+                sbGroup.className = "flex items-center justify-between px-4 border-b border-slate-200 bg-slate-100 font-bold text-[15px] text-slate-800 select-none group hover:bg-slate-200 transition";
+                sbGroup.style.height = `${config.rowHeight}px`;
+                sbGroup.innerHTML = `
+                    <div class="flex items-center gap-3 w-full">
+                        <div class="color-dot ${colors.dot}" onclick="cycleColor('${group.id}')" title="Farbe ändern"></div>
+                        <span contenteditable="true" class="outline-none truncate w-full" onblur="updateGroupName('${group.id}', this.innerText)">${group.name}</span>
+                    </div>
+                    <div class="hidden group-hover:flex items-center gap-2">
+                        <button onclick="addTask('${group.id}')" title="Add Task"><i class="ph-bold ph-plus text-slate-500 hover:text-slate-900"></i></button>
+                        <button onclick="deleteGroup('${group.id}')" title="Delete Group"><i class="ph-bold ph-trash text-slate-500 hover:text-red-500"></i></button>
+                    </div>
+                `;
+                els.sidebarContent.appendChild(sbGroup);
+
+                // Timeline Group Row
+                const tlGroup = document.createElement('div');
+                tlGroup.className = "border-b border-slate-200 bg-slate-50/50 relative";
+                tlGroup.style.height = `${config.rowHeight}px`;
+                tlGroup.style.width = `${totalWidth}px`;
+
+                // Calculate Group Summary
+                if (group.tasks.length > 0) {
+                    let minDate = null;
+                    let maxDate = null;
+                    group.tasks.forEach(t => {
+                        const tStart = new Date(t.start);
+                        const tEnd = new Date(t.start);
+                        tEnd.setDate(tEnd.getDate() + t.duration);
+                        if(!minDate || tStart < minDate) minDate = tStart;
+                        if(!maxDate || tEnd > maxDate) maxDate = tEnd;
+                    });
+                    if(minDate && maxDate) {
+                        const offsetDays = getDiffDays(start, minDate.toISOString().split('T')[0]);
+                        const durationDays = getDiffDays(minDate.toISOString().split('T')[0], maxDate.toISOString().split('T')[0]);
+                        const leftPx = (offsetDays / 7) * config.weekWidth;
+                        const widthPx = (durationDays / 7) * config.weekWidth;
+
+                        const groupBar = document.createElement('div');
+                        groupBar.className = `group-bar ${colors.dark}`;
+                        groupBar.style.left = `${leftPx}px`;
+                        groupBar.style.width = `${Math.max(10, widthPx)}px`;
+                        tlGroup.appendChild(groupBar);
+                    }
+                }
+                els.timelineGrid.appendChild(tlGroup);
+
+                // Tasks - Increased text size (14px)
+                group.tasks.forEach(task => {
+                    const sbTask = document.createElement('div');
+                    sbTask.className = "flex items-center justify-between px-4 pl-8 border-b border-slate-100 text-sm text-slate-600 bg-white group hover:bg-slate-50";
+                    sbTask.style.height = `${config.rowHeight}px`;
+                    sbTask.innerHTML = `
+                        <div class="flex items-center gap-2 w-full">
+                            <i class="ph ph-arrow-elbow-down-right text-slate-300"></i>
+                            <span contenteditable="true" class="outline-none w-full truncate" onblur="updateTaskName('${group.id}', '${task.id}', this.innerText)">${task.name}</span>
+                        </div>
+                        <button onclick="deleteTask('${group.id}', '${task.id}')" class="hidden group-hover:block"><i class="ph-bold ph-x text-slate-300 hover:text-red-500"></i></button>
+                    `;
+                    els.sidebarContent.appendChild(sbTask);
+
+                    const tlTaskRow = document.createElement('div');
+                    tlTaskRow.className = "border-b border-slate-100 relative";
+                    tlTaskRow.style.height = `${config.rowHeight}px`;
+                    tlTaskRow.style.width = `${totalWidth}px`;
+                    
+                    const offsetDays = getDiffDays(start, task.start);
+                    const widthPx = (task.duration / 7) * config.weekWidth;
+                    const leftPx = (offsetDays / 7) * config.weekWidth;
+
+                    const bar = document.createElement('div');
+                    bar.className = `task-bar ${colors.light}`;
+                    bar.style.left = `${leftPx}px`;
+                    bar.style.width = `${Math.max(20, widthPx)}px`;
+                    bar.innerHTML = `<div class="resize-handle"></div>`;
+                    
+                    setupDrag(bar, task, group.id, config.weekWidth);
+                    tlTaskRow.appendChild(bar);
+                    els.timelineGrid.appendChild(tlTaskRow);
+                });
+            });
+        }
+
+        function setupDrag(bar, task, groupId, weekWidth) {
+            const handle = bar.querySelector('.resize-handle');
+            bar.addEventListener('mousedown', (e) => {
+                if(e.target === handle) return; 
+                const startX = e.clientX;
+                const startLeft = parseFloat(bar.style.left);
+                const onMove = (moveEvent) => {
+                    bar.style.left = `${startLeft + (moveEvent.clientX - startX)}px`;
+                };
+                const onUp = (upEvent) => {
+                    document.removeEventListener('mousemove', onMove);
+                    document.removeEventListener('mouseup', onUp);
+                    const dx = upEvent.clientX - startX;
+                    const daysChanged = Math.round((dx / weekWidth) * 7);
+                    if(daysChanged !== 0) {
+                        const newStart = new Date(task.start);
+                        newStart.setDate(newStart.getDate() + daysChanged);
+                        task.start = newStart.toISOString().split('T')[0];
+                        render();
+                    } else { bar.style.left = `${startLeft}px`; }
+                };
+                document.addEventListener('mousemove', onMove);
+                document.addEventListener('mouseup', onUp);
+            });
+            handle.addEventListener('mousedown', (e) => {
+                e.stopPropagation();
+                const startX = e.clientX;
+                const startWidth = parseFloat(bar.style.width);
+                const originalDuration = task.duration;
+                const onMove = (moveEvent) => {
+                    bar.style.width = `${Math.max(20, startWidth + (moveEvent.clientX - startX))}px`;
+                };
+                const onUp = (upEvent) => {
+                    document.removeEventListener('mousemove', onMove);
+                    document.removeEventListener('mouseup', onUp);
+                    const daysAdded = Math.round(((upEvent.clientX - startX) / weekWidth) * 7);
+                    task.duration = Math.max(1, originalDuration + daysAdded);
+                    render();
+                };
+                document.addEventListener('mousemove', onMove);
+                document.addEventListener('mouseup', onUp);
+            });
+        }
+
+        function addGroup() {
+            const keys = Object.keys(PALETTES);
+            project.groups.push({ id: crypto.randomUUID(), name: "Neue Phase", color: keys[Math.floor(Math.random() * keys.length)], tasks: [] });
+            render();
+        }
+        function cycleColor(groupId) {
+            const group = project.groups.find(g => g.id === groupId);
+            const currentIndex = PALETTE_KEYS.indexOf(group.color);
+            const nextIndex = (currentIndex + 1) % PALETTE_KEYS.length;
+            group.color = PALETTE_KEYS[nextIndex];
+            render();
+        }
+        function addTask(groupId) {
+            const group = project.groups.find(g => g.id === groupId);
+            group.tasks.push({ id: crypto.randomUUID(), name: "Neuer Schritt", start: project.startDate, duration: 7 });
+            render();
+        }
+        function deleteGroup(id) { if(confirm('Gruppe löschen?')) { project.groups = project.groups.filter(g => g.id !== id); render(); } }
+        function deleteTask(gid, tid) { const g = project.groups.find(x => x.id === gid); g.tasks = g.tasks.filter(x => x.id !== tid); render(); }
+        function updateGroupName(id, val) { project.groups.find(g => g.id === id).name = val; }
+        function updateTaskName(gid, tid, val) { project.groups.find(g => g.id === gid).tasks.find(t => t.id === tid).name = val; }
+        function zoomIn() { config.weekWidth += 20; render(); }
+        function zoomOut() { if(config.weekWidth > 40) config.weekWidth -= 20; render(); }
+
+        // --- EXPORT LOGIC (CORRECTED) ---
+
+        function generateStaticGantt(proj) {
+            // --- CONFIG ---
+            const CONFIG = {
+                totalWidth: 2000,
+                sidebarWidth: 400,
+                headerHeight: 60,
+                rowHeight: 40,
+                monthHeight: 30, // Identical to Preview
+                weekHeight: 30,  // Identical to Preview
+                fontFamily: "'Inter', sans-serif, system-ui"
+            };
+
+            const timelineWidth = CONFIG.totalWidth - CONFIG.sidebarWidth;
+
+            // Date Calculation
+            const start = new Date(proj.startDate);
+            const dayOfWeek = start.getDay(); 
+            const distToMon = (dayOfWeek + 6) % 7;
+            start.setDate(start.getDate() - distToMon);
+
+            const end = new Date(proj.endDate);
+            const totalDurationDays = getDiffDays(start, end);
+            const totalWeeks = Math.ceil(totalDurationDays / 7) + 2;
+            
+            const weekWidth = timelineWidth / totalWeeks;
+
+            // Styles
+            const styles = {
+                container: {
+                    width: `${CONFIG.totalWidth}px`,
+                    backgroundColor: '#ffffff',
+                    fontFamily: CONFIG.fontFamily,
+                    color: '#0f172a',
+                    boxSizing: 'border-box',
+                    overflow: 'hidden',
+                    position: 'relative'
+                },
+                sidebarCell: {
+                    width: `${CONFIG.sidebarWidth}px`,
+                    flexShrink: 0,
+                    borderRight: '1px solid #e2e8f0',
+                    borderBottom: '1px solid #e2e8f0',
+                    boxSizing: 'border-box',
+                    display: 'flex',
+                    alignItems: 'center',
+                    padding: '0 16px',
+                    backgroundColor: '#f8fafc' 
+                },
+                timelineRow: {
+                    width: `${timelineWidth}px`,
+                    position: 'relative',
+                    borderBottom: '1px solid #e2e8f0', // Preview uses 200
+                    boxSizing: 'border-box',
+                    backgroundColor: '#ffffff'
+                },
+                gridBox: {
+                    position: 'absolute',
+                    top: 0,
+                    bottom: 0,
+                    width: `${weekWidth}px`,
+                    borderRight: '1px solid #f1f5f9', // Light grid line (slate-100/50 mix)
+                    boxSizing: 'border-box',
+                    zIndex: 0
+                }
+            };
+
+            const container = document.createElement('div');
+            Object.assign(container.style, styles.container);
+
+            // 1. HEADER
+            const headerRow = document.createElement('div');
+            headerRow.style.display = 'flex';
+            headerRow.style.height = `${CONFIG.headerHeight}px`;
+
+            // 1.1 Sidebar Header
+            const sbHeader = document.createElement('div');
+            Object.assign(sbHeader.style, styles.sidebarCell, {
+                height: '100%',
+                justifyContent: 'center',
+                fontWeight: '800',
+                fontSize: '18px',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                color: '#334155', // slate-700
+                backgroundColor: '#f8fafc' // slate-50
+            });
+            sbHeader.innerText = proj.title || 'PROJEKTPLAN';
+            headerRow.appendChild(sbHeader);
+
+            // 1.2 Timeline Header
+            const tlHeader = document.createElement('div');
+            Object.assign(tlHeader.style, {
+                width: `${timelineWidth}px`,
+                height: '100%',
+                display: 'flex',
+                flexDirection: 'column'
+            });
+
+            // Month Row
+            const monthRow = document.createElement('div');
+            Object.assign(monthRow.style, {
+                height: `${CONFIG.monthHeight}px`,
+                width: '100%',
+                position: 'relative',
+                backgroundColor: '#f8fafc',
+                borderBottom: '1px solid #e2e8f0'
+            });
+
+            // Week Row
+            const weekRow = document.createElement('div');
+            Object.assign(weekRow.style, {
+                height: `${CONFIG.weekHeight}px`,
+                width: '100%',
+                position: 'relative',
+                backgroundColor: '#ffffff',
+                borderBottom: '1px solid #e2e8f0'
+            });
+
+            let currentMonth = -1;
+            let monthStartLeft = 0;
+            let currentMonthLabel = "";
+
+            for(let i=0; i<totalWeeks; i++) {
+                const wStart = new Date(start); wStart.setDate(wStart.getDate() + (i * 7));
+                const wEnd = new Date(wStart); wEnd.setDate(wEnd.getDate() + 6);
+                const leftPos = i * weekWidth;
+
+                // Month
+                if(wStart.getMonth() !== currentMonth) {
+                    if(currentMonthLabel) {
+                        const mDiv = document.createElement('div');
+                        Object.assign(mDiv.style, {
+                            position: 'absolute', left: `${monthStartLeft}px`, width: `${leftPos - monthStartLeft}px`,
+                            height: '100%', display: 'flex', alignItems: 'center', paddingLeft: '8px',
+                            fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', color: '#64748b',
+                            borderRight: '1px solid #e2e8f0', boxSizing: 'border-box', backgroundColor: '#f1f5f9'
+                        });
+                        mDiv.innerText = currentMonthLabel;
+                        monthRow.appendChild(mDiv);
+                    }
+                    currentMonth = wStart.getMonth();
+                    currentMonthLabel = wStart.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' });
+                    monthStartLeft = leftPos;
+                }
+
+                // Week Cell
+                const wDiv = document.createElement('div');
+                // Use header-specific border style
+                Object.assign(wDiv.style, {
+                    position: 'absolute',
+                    left: `${leftPos}px`,
+                    width: `${weekWidth}px`,
+                    height: '100%',
+                    display: 'flex', 
+                    flexDirection: 'column', 
+                    justifyContent: 'center', 
+                    alignItems: 'center',
+                    backgroundColor: '#ffffff',
+                    borderRight: '1px solid #e2e8f0', // Stronger line for header
+                    boxSizing: 'border-box'
+                });
+                
+                wDiv.innerHTML = `
+                    <div style="font-size:11px; font-weight:800; color:#334155; line-height:1.1; margin-bottom:2px;">KW ${getWeekNumber(wStart)}</div>
+                    <div style="font-size:9px; color:#94a3b8; line-height:1;">${formatDateDE(wStart)} - ${formatDateDE(wEnd)}</div>
+                `;
+                weekRow.appendChild(wDiv);
+            }
+            if(currentMonthLabel) {
+                const mDiv = document.createElement('div');
+                Object.assign(mDiv.style, {
+                    position: 'absolute', left: `${monthStartLeft}px`, width: `${(totalWeeks * weekWidth) - monthStartLeft}px`,
+                    height: '100%', display: 'flex', alignItems: 'center', paddingLeft: '8px',
+                    fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', color: '#64748b',
+                    borderRight: '1px solid #e2e8f0', boxSizing: 'border-box', backgroundColor: '#f1f5f9'
+                });
+                mDiv.innerText = currentMonthLabel;
+                monthRow.appendChild(mDiv);
+            }
+
+            tlHeader.appendChild(monthRow);
+            tlHeader.appendChild(weekRow);
+            headerRow.appendChild(tlHeader);
+            container.appendChild(headerRow);
+
+            // Helper for Body Grid
+            const createRowBackground = () => {
+                const bg = document.createElement('div');
+                Object.assign(bg.style, { position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 0 });
+                for(let i=0; i<totalWeeks; i++) {
+                    const gridCell = document.createElement('div');
+                    Object.assign(gridCell.style, styles.gridBox, { left: `${i * weekWidth}px`, height: '100%' });
+                    bg.appendChild(gridCell);
+                }
+                return bg;
+            };
+
+            // 2. BODY
+            proj.groups.forEach(group => {
+                // Color Lookup
+                const cKey = group.color || 'red';
+                const colorTheme = EXPORT_COLORS[cKey] || EXPORT_COLORS.red;
+
+                // --- GROUP ROW ---
+                const gRow = document.createElement('div');
+                gRow.style.display = 'flex';
+                gRow.style.height = `${CONFIG.rowHeight}px`;
+
+                // Sidebar
+                const gSb = document.createElement('div');
+                Object.assign(gSb.style, styles.sidebarCell, {
+                    height: '100%', 
+                    fontWeight: '700', 
+                    color: '#1e293b', // slate-800
+                    fontSize: '15px',
+                    backgroundColor: '#f1f5f9' // slate-100
+                });
+                gSb.innerText = group.name;
+                gRow.appendChild(gSb);
+
+                // Timeline
+                const gTl = document.createElement('div');
+                Object.assign(gTl.style, styles.timelineRow, { 
+                    height: '100%', 
+                    backgroundColor: '#f8fafc' // slate-50 (faint)
+                });
+                
+                gTl.appendChild(createRowBackground());
+
+                // Group Bar
+                if (group.tasks.length > 0) {
+                    let minDate = null; let maxDate = null;
+                    group.tasks.forEach(t => {
+                        const tStart = new Date(t.start);
+                        const tEnd = new Date(t.start); tEnd.setDate(tEnd.getDate() + t.duration);
+                        if(!minDate || tStart < minDate) minDate = tStart;
+                        if(!maxDate || tEnd > maxDate) maxDate = tEnd;
+                    });
+
+                    if(minDate && maxDate) {
+                        const offsetDays = getDiffDays(start, minDate.toISOString().split('T')[0]);
+                        const durationDays = getDiffDays(minDate.toISOString().split('T')[0], maxDate.toISOString().split('T')[0]);
+                        
+                        const leftPx = (offsetDays / 7) * weekWidth;
+                        const widthPx = (durationDays / 7) * weekWidth;
+
+                        const bar = document.createElement('div');
+                        Object.assign(bar.style, {
+                            position: 'absolute', 
+                            top: '10px',      // MATCHES PREVIEW CSS
+                            height: '20px',   // MATCHES PREVIEW CSS
+                            borderRadius: '3px', 
+                            zIndex: 10,
+                            left: `${leftPx}px`, 
+                            width: `${Math.max(10, widthPx)}px`, 
+                            opacity: '1',
+                            boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                            backgroundColor: colorTheme.dark // Using mapped HEX
+                        });
+                        gTl.appendChild(bar);
+                    }
+                }
+                gRow.appendChild(gTl);
+                container.appendChild(gRow);
+
+                // --- TASK ROWS ---
+                group.tasks.forEach(task => {
+                    const tRow = document.createElement('div');
+                    tRow.style.display = 'flex';
+                    tRow.style.height = `${CONFIG.rowHeight}px`;
+
+                    // Sidebar
+                    const tSb = document.createElement('div');
+                    Object.assign(tSb.style, styles.sidebarCell, {
+                        height: '100%', 
+                        color: '#475569', // slate-600
+                        fontSize: '14px', 
+                        paddingLeft: '32px',
+                        backgroundColor: '#ffffff',
+                        borderBottom: '1px solid #f1f5f9' // lighter border for tasks
+                    });
+                    tSb.innerText = task.name;
+                    tRow.appendChild(tSb);
+
+                    // Timeline
+                    const tTl = document.createElement('div');
+                    Object.assign(tTl.style, styles.timelineRow, { 
+                        height: '100%',
+                        borderBottom: '1px solid #f1f5f9'
+                    });
+
+                    tTl.appendChild(createRowBackground());
+
+                    // Task Bar
+                    const offsetDays = getDiffDays(start, task.start);
+                    const widthPx = (task.duration / 7) * weekWidth;
+                    const leftPx = (offsetDays / 7) * weekWidth;
+
+                    const bar = document.createElement('div');
+                    Object.assign(bar.style, {
+                        position: 'absolute', 
+                        top: '8px',       // MATCHES PREVIEW CSS
+                        height: '24px',   // MATCHES PREVIEW CSS
+                        borderRadius: '4px', 
+                        zIndex: 10,
+                        left: `${leftPx}px`, 
+                        width: `${Math.max(20, widthPx)}px`,
+                        boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                        borderWidth: '1px',
+                        borderStyle: 'solid',
+                        backgroundColor: colorTheme.lightBg,    // Mapped HEX
+                        borderColor: colorTheme.lightBorder,     // Mapped HEX
+                        color: colorTheme.dark // Text color if we added text inside
+                    });
+
+                    tTl.appendChild(bar);
+                    tRow.appendChild(tTl);
+                    container.appendChild(tRow);
+                });
+            });
+
+            return container;
+        }        
+
+        function handleExportPNG() {
+            els.exportOverlay.classList.remove('hidden');
+            setTimeout(async () => {
+                try {
+                    const staticView = generateStaticGantt(project);
+                    staticView.style.position = 'absolute';
+                    staticView.style.top = '-9999px';
+                    staticView.style.left = '0';
+                    document.body.appendChild(staticView);
+
+                    const canvas = await html2canvas(staticView, {
+                        scale: 2, // Slightly reduced scale for performance/size balance
+                        backgroundColor: '#ffffff',
+                        logging: false
+                    });
+
+                    document.body.removeChild(staticView);
+
+                    const link = document.createElement('a');
+                    link.download = `${project.title || 'gantt'}.png`;
+                    link.href = canvas.toDataURL();
+                    link.click();
+                } catch(e) {
+                    console.error(e);
+                    alert('Fehler beim Export.');
+                } finally {
+                    els.exportOverlay.classList.add('hidden');
+                }
+            }, 100);
+        }
+
+        function handleExportJSON() {
+            const blob = new Blob([JSON.stringify(project)], {type: 'application/json'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `Gantt_${project.title.replace(/\s/g,'_')}.json`;
+            a.click();
+        }
+
+        function handleImportJSON(input) {
+            const file = input.files[0];
+            if(!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    project = JSON.parse(e.target.result);
+                    els.inpTitle.value = project.title;
+                    els.inpStart.value = project.startDate;
+                    els.inpEnd.value = project.endDate;
+                    els.landing.classList.add('hidden');
+                    els.gantt.classList.remove('hidden');
+                    els.toolbar.style.display = 'flex';
+                    render();
+                } catch(err) { alert('Ungültiges Dateiformat'); }
+            };
+            reader.readAsText(file);
+        }
+
+        init();
+    </script>
+</body>
+</html>
